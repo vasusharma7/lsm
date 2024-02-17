@@ -68,11 +68,11 @@ func (node *AVLNode) RightTree() AVL {
 // val == nil, delete the element
 func (node *AVLNode) Insert(key string, val []byte) AVL {
 	if node == nil {
-		if val == nil {
-			// Cannot delete a node before it is created !
-			fmt.Println("Cannot delete a node before it is created")
-			return nil
-		}
+		// if val == nil {
+		// 	// Cannot delete a node before it is created !
+		// 	fmt.Println("Cannot delete a node before it is created")
+		// 	return nil
+		// }
 		return &AVLNode{entry: Pair{Key: key, Val: val, Tomb: false}, Weight: 0}
 	}
 
@@ -85,9 +85,8 @@ func (node *AVLNode) Insert(key string, val []byte) AVL {
 		// node.Key = key
 		if val == nil {
 			node.entry.Tomb = true
-		} else {
-			node.entry.Val = val
 		}
+		node.entry.Val = val
 		return node
 	}
 

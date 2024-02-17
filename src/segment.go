@@ -45,6 +45,7 @@ func MergeSegments(segs ...*Segment) Segment {
 		}
 		if len(out.Pairs) > 0 && out.Pairs[len(out.Pairs)-1].Key == segs[smi].Pairs[ptrs[smi]].Key {
 			//replace old value | Overwrite
+			// TODO: delete if null
 			out.Pairs[len(out.Pairs)-1] = segs[smi].Pairs[ptrs[smi]]
 		} else {
 			out.Pairs = append(out.Pairs, segs[smi].Pairs[ptrs[smi]])

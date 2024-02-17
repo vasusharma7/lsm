@@ -15,6 +15,8 @@ import (
 	"time"
 )
 
+// TODO(vasusharma7@): A lot of cleanup
+
 //Ideally all logs should not be fatal but I am just being lazy here ;)
 
 const (
@@ -61,8 +63,34 @@ func (lsm *LSM) Insert(key string, val []byte) error {
 	return nil
 }
 
-func (lsm *LSM) String() string {
-	return "test"
+func (lsm *LSM) Update(key string, val []byte) error {
+	lsm.memc = lsm.memc.Insert(key, val)
+	//update can also trigger insert, hence still run the next piece of code
+	go func() {
+		lsm.lp.Lock()
+		if size := lsm.memc.Size(); size > MEMC_SIZE {
+			lsm.PersistMemC()
+		} else if DEBUG {
+			log.Printf("[DEBUG]: memcache size: %d", size)
+		}
+		lsm.lp.Unlock()
+	}()
+	return nil
+}
+
+func (lsm *LSM) Delete(key string) error {
+	lsm.memc = lsm.memc.Insert(key, nil)
+	//delete can also trigger insert, hence still run the next piece of code
+	go func() {
+		lsm.lp.Lock()
+		if size := lsm.memc.Size(); size > MEMC_SIZE {
+			lsm.PersistMemC()
+		} else if DEBUG {
+			log.Printf("[DEBUG]: memcache size: %d", size)
+		}
+		lsm.lp.Unlock()
+	}()
+	return nil
 }
 
 func (lsm *LSM) persistSeg(seg Segment, fn string) *os.File {
@@ -162,7 +190,7 @@ func New() (*LSM, error) {
 	return lsm, nil
 }
 
-func (lsm *LSM) ReadSegmentFile(f *os.File) *Segment {
+func (lsm *LSM) readSegmentFile(f *os.File) *Segment {
 	var seg Segment
 	buff := make([]byte, 256*1024*1024)
 	// it is not gauranteed that someone didn't delete the file till now, next lock is not effective heree.
@@ -186,19 +214,16 @@ func (lsm *LSM) ReadSegmentFile(f *os.File) *Segment {
 
 func (lsm *LSM) Search(key string) []byte {
 	if pair := lsm.memc.Search(key); pair != nil {
-		if pair.Tomb {
-			return nil
-		}
 		return pair.Val
 	}
 	for _, level := range lsm.store {
 		for i := len(level.segs) - 1; i >= 0; i -= 1 {
-			//hack for parallelisation
+			//hack for parallelisation curse ?
 			if len(level.segs) <= i {
 				continue
 			}
 			f := level.segs[i]
-			seg := lsm.ReadSegmentFile(f)
+			seg := lsm.readSegmentFile(f)
 			if strings.Compare(seg.Pairs[0].Key, key) == 1 {
 				continue
 			}
@@ -240,7 +265,7 @@ func (lsm *LSM) Compact() {
 		}
 		segs := []*Segment{}
 		for _, seg := range lsm.store[level].segs {
-			segs = append(segs, lsm.ReadSegmentFile(seg))
+			segs = append(segs, lsm.readSegmentFile(seg))
 		}
 		if lsm.store[level+1] == nil {
 			// lsm.l.Lock()
@@ -250,7 +275,7 @@ func (lsm *LSM) Compact() {
 		segsN := []*Segment{}
 		oldSegsN := lsm.store[level+1].segs
 		for _, seg := range oldSegsN {
-			segsN = append(segsN, lsm.ReadSegmentFile(seg))
+			segsN = append(segsN, lsm.readSegmentFile(seg))
 		}
 		m := MergeSegments(append(segs, segsN...)...)
 		// lsm.l.Lock()
