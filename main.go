@@ -33,14 +33,14 @@ func main() {
 		}
 	}
 
-	fmt.Println("Searching....")
-	// wg.Add(1)
-	// go func() {
-	// for {
-	if val := lsm.Search("99999"); val != nil {
-		fmt.Println(string(val))
-		// wg.Done()
-	}
+	// fmt.Println("Searching....")
+	// // wg.Add(1)
+	// // go func() {
+	// // for {
+	// if val := lsm.Search("99999"); val != nil {
+	// 	fmt.Println(string(val))
+	// 	// wg.Done()
+	// }
 
 	// time.Sleep(20 * time.Second)
 	lsm.Exit()
