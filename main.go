@@ -22,6 +22,7 @@ func main() {
 	// 		}
 	// 	}
 	// }()
+	// var wg sync.WaitGroup
 
 	for j := range 100 {
 		// for j := 200; j < 300; j += 1 {
@@ -33,9 +34,19 @@ func main() {
 	}
 
 	fmt.Println("Searching....")
-	if val := lsm.Search("1000"); val != nil {
-		fmt.Println(string(val) + "\n")
+	// wg.Add(1)
+	// go func() {
+	// for {
+	if val := lsm.Search("99999"); val != nil {
+		fmt.Println(string(val))
+		// wg.Done()
 	}
+
+	// time.Sleep(20 * time.Second)
+	lsm.Exit()
+	// }
+	// }()
+	// wg.Wait()
 
 	// var tree src.AVL = src.InitAVLTree()
 

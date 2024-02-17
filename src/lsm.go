@@ -18,9 +18,10 @@ import (
 //Ideally all logs should not be fatal but I am just being lazy here ;)
 
 const (
-	dataLoc   = "./data"
-	MEMC_SIZE = 2096
-	DEBUG     = false
+	dataLoc        = "./data"
+	MEMC_SIZE      = 1024 * 256
+	COMPACTION_GAP = time.Millisecond * 1000
+	DEBUG          = false
 )
 
 type segtree struct {
@@ -33,6 +34,8 @@ type LSM struct {
 	memc  AVL
 	store map[int]*segtree // full compaction with each incrementing level being 2*MEMC_SIZE
 	l     sync.Mutex
+	lp    sync.Mutex
+	exit  bool
 }
 
 func (lsm *LSM) Insert(key string, val []byte) error {
@@ -46,6 +49,15 @@ func (lsm *LSM) Insert(key string, val []byte) error {
 	// }
 	// lsm.memc = lsm.memc.Insert(key, valb.Bytes())
 	lsm.memc = lsm.memc.Insert(key, val)
+	go func() {
+		lsm.lp.Lock()
+		if size := lsm.memc.Size(); size > MEMC_SIZE {
+			lsm.PersistMemC()
+		} else if DEBUG {
+			log.Printf("[DEBUG]: memcache size: %d", size)
+		}
+		lsm.lp.Unlock()
+	}()
 	return nil
 }
 
@@ -82,10 +94,10 @@ func (lsm *LSM) PersistMemC() error {
 		lsm.store[0] = &segtree{size: 0, segs: []*os.File{}}
 	}
 	//compaction will take care of expanded size
-	lsm.l.Lock()
+	// lsm.l.Lock()
 	lsm.store[0].segs = append(lsm.store[0].segs, f)
 	lsm.store[0].size += 1
-	lsm.l.Unlock()
+	// lsm.l.Unlock()
 	lsm.memc = InitAVLTree()
 	return nil
 }
@@ -133,17 +145,18 @@ func New() (*LSM, error) {
 	}
 	lsm := &LSM{memc: InitAVLTree(), store: tree, l: sync.Mutex{}}
 	go func() {
+		var wg sync.WaitGroup
 		for {
-			size := lsm.memc.Size()
-			if size > MEMC_SIZE {
-				lsm.PersistMemC()
-				lsm.Compact()
-			} else {
-				if DEBUG {
-					log.Printf("[DEBUG]: memcache size: %d", size)
-				}
+			if lsm.exit {
+				break
 			}
-			time.Sleep(100 * time.Millisecond)
+			wg.Add(1)
+			go func() {
+				lsm.Compact()
+				wg.Done()
+			}()
+			wg.Wait()
+			time.Sleep(COMPACTION_GAP)
 		}
 	}()
 	return lsm, nil
@@ -154,12 +167,12 @@ func (lsm *LSM) ReadSegmentFile(f *os.File) *Segment {
 	buff := make([]byte, 256*1024*1024)
 	// it is not gauranteed that someone didn't delete the file till now, next lock is not effective heree.
 	f.Seek(0, 0)
-	lsm.l.Lock()
+	// lsm.l.Lock()
 	if _, err := f.Read(buff); err != nil {
-		lsm.l.Unlock()
+		// lsm.l.Unlock()
 		log.Fatal("[ERROR]: reading segment ", err)
 	} else {
-		lsm.l.Unlock()
+		// lsm.l.Unlock()
 		// if DEBUG {
 		// 	log.Printf("[DEBUG]: read %v segment bytes ", n)
 		// }
@@ -200,13 +213,13 @@ func (lsm *LSM) Search(key string) []byte {
 
 func (lsm *LSM) delOldSegs(files ...*os.File) {
 	for _, f := range files {
-		lsm.l.Lock()
+		// lsm.l.Lock()
 		if err := os.Remove(f.Name()); err != nil {
 			if DEBUG {
 				log.Print("[ERROR]: unable to remove old segment ", err)
 			}
 		}
-		lsm.l.Unlock()
+		// lsm.l.Unlock()
 	}
 }
 
@@ -230,9 +243,9 @@ func (lsm *LSM) Compact() {
 			segs = append(segs, lsm.ReadSegmentFile(seg))
 		}
 		if lsm.store[level+1] == nil {
-			lsm.l.Lock()
+			// lsm.l.Lock()
 			lsm.store[level+1] = &segtree{size: 0}
-			lsm.l.Unlock()
+			// lsm.l.Unlock()
 		}
 		segsN := []*Segment{}
 		oldSegsN := lsm.store[level+1].segs
@@ -240,16 +253,24 @@ func (lsm *LSM) Compact() {
 			segsN = append(segsN, lsm.ReadSegmentFile(seg))
 		}
 		m := MergeSegments(append(segs, segsN...)...)
-		lsm.l.Lock()
+		// lsm.l.Lock()
 		lsm.store[level+1].segs = []*os.File{lsm.persistSeg(m, fmt.Sprintf("%v/seg_%v_%v", dataLoc, level+1, time.Now().UnixMilli()))}
 		lsm.store[level+1].size += 1
-		lsm.l.Unlock()
+		// lsm.l.Unlock()
 
 		lsm.delOldSegs(append(lsm.store[level].segs, oldSegsN...)...)
 
-		lsm.l.Lock()
+		// lsm.l.Lock()
 		lsm.store[level].size = 0
 		lsm.store[level].segs = []*os.File{}
-		lsm.l.Unlock()
+		// lsm.l.Unlock()
 	}
+}
+
+func (lsm *LSM) Exit() {
+	lsm.exit = true
+	// lsm.lp.Lock()
+	lsm.PersistMemC()
+	lsm.Compact()
+	// lsm.lp.Unlock()
 }
