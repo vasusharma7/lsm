@@ -21,3 +21,6 @@
 go.work
 
 .vscode
+
+data
+data/*
